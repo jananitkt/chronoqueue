@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ChronoQueue | SQS with Time-Travel & Self-Healing DLQ</title>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --card-bg: #161b22;
+      --border: #30363d;
+      --accent: #58a6ff;
+      --accent-glow: rgba(88, 166, 255, 0.2);
+      --success: #3fb950;
+      --warning: #d29922;
+      --danger: #f85149;
+      --purple: #bc8cff;
+      --text: #c9d1d9;
+      --text-bright: #f0f6fc;
+      --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      line-height: 1.5;
+      padding-bottom: 40px;
+    }
+    header {
+      background: #010409;
+      border-bottom: 1px solid var(--border);
+      padding: 16px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .logo-container { display: flex; align-items: center; gap: 12px; }
+    .logo-icon {
+      background: linear-gradient(135deg, #a371f7, #58a6ff);
+      width: 34px; height: 34px;
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 800; color: #fff;
+    }
+    .logo-title { font-size: 1.25rem; font-weight: 700; color: var(--text-bright); }
+    .tagline { font-size: 0.75rem; color: #8b949e; margin-left: 8px; }
+    .pill {
+      font-size: 0.75rem; padding: 3px 8px; border-radius: 12px;
+      font-weight: 600; display: inline-flex; align-items: center; gap: 4px;
+    }
+    .pill-green { background: rgba(63, 185, 80, 0.15); color: var(--success); border: 1px solid rgba(63, 185, 80, 0.4); }
+    .pill-purple { background: rgba(188, 140, 255, 0.15); color: var(--purple); border: 1px solid rgba(188, 140, 255, 0.4); }
+    .pill-danger { background: rgba(248, 81, 73, 0.15); color: var(--danger); border: 1px solid rgba(248, 81, 73, 0.4); }
+
+    .main-container { max-width: 1280px; margin: 24px auto; padding: 0 20px; }
+    .grid-stats {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 16px; margin-bottom: 24px;
+    }
+    .stat-card {
+      background: var(--card-bg); border: 1px solid var(--border);
+      border-radius: 8px; padding: 18px; position: relative; overflow: hidden;
+    }
+    .stat-label { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; color: #8b949e; }
+    .stat-value { font-size: 2rem; font-weight: 700; color: var(--text-bright); margin-top: 4px; }
+
+    .tabs {
+      display: flex; gap: 8px; border-bottom: 1px solid var(--border);
+      margin-bottom: 24px;
+    }
+    .tab-btn {
+      background: none; border: none; color: #8b949e; padding: 10px 18px;
+      font-size: 0.95rem; font-weight: 600; cursor: pointer;
+      border-bottom: 2px solid transparent; transition: all 0.2s;
+    }
+    .tab-btn:hover { color: var(--text-bright); }
+    .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+    .panel { display: none; }
+    .panel.active { display: block; }
+
+    .card {
+      background: var(--card-bg); border: 1px solid var(--border);
+      border-radius: 8px; padding: 20px; margin-bottom: 20px;
+    }
+    .card-title {
+      font-size: 1.1rem; font-weight: 600; color: var(--text-bright);
+      margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center;
+    }
+
+    table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+    th { text-align: left; padding: 10px 12px; color: #8b949e; border-bottom: 1px solid var(--border); }
+    td { padding: 12px; border-bottom: 1px solid var(--border); }
+    tr:hover td { background: rgba(255,255,255,0.02); }
+
+    input, select, textarea {
+      background: #0d1117; border: 1px solid var(--border); color: var(--text-bright);
+      padding: 8px 12px; border-radius: 6px; font-size: 0.9rem; width: 100%;
+      margin-top: 6px; font-family: inherit;
+    }
+    input:focus, select:focus, textarea:focus {
+      outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow);
+    }
+    .form-group { margin-bottom: 14px; }
+    label { font-size: 0.85rem; color: #8b949e; font-weight: 500; }
+
+    .btn {
+      background: #21262d; color: var(--text-bright); border: 1px solid var(--border);
+      padding: 8px 16px; border-radius: 6px; font-weight: 600; font-size: 0.85rem;
+      cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: 0.2s;
+    }
+    .btn:hover { background: #30363d; }
+    .btn-primary { background: #238636; border-color: rgba(240,246,252,0.1); color: #fff; }
+    .btn-primary:hover { background: #2ea043; }
+    .btn-purple { background: #8957e5; border-color: rgba(240,246,252,0.1); color: #fff; }
+    .btn-purple:hover { background: #9a68f0; }
+    .btn-danger { background: #da3633; border-color: rgba(240,246,252,0.1); color: #fff; }
+    .btn-danger:hover { background: #f85149; }
+
+    .split-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    pre {
+      background: #010409; border: 1px solid var(--border); padding: 12px;
+      border-radius: 6px; font-family: monospace; font-size: 0.85rem;
+      color: #7ee787; overflow-x: auto; max-height: 250px;
+    }
+    .diff-box {
+      background: #010409; border: 1px solid var(--border);
+      border-radius: 6px; padding: 12px; font-family: monospace; font-size: 0.8rem;
+    }
+    .diff-old { color: #f85149; background: rgba(248, 81, 73, 0.1); padding: 2px 4px; border-radius: 3px; }
+    .diff-new { color: #3fb950; background: rgba(63, 185, 80, 0.1); padding: 2px 4px; border-radius: 3px; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="logo-container">
+      <div class="logo-icon">CQ</div>
+      <div>
+        <span class="logo-title">ChronoQueue</span>
+        <span class="tagline">SQS + Time-Travel Replay & Self-Healing DLQ</span>
+      </div>
+    </div>
+    <div style="display:flex; align-items:center; gap: 12px;">
+      <span class="pill pill-green">● Port 9324 Active</span>
+      <button class="btn btn-primary" onclick="openCreateQueueModal()">+ Create Queue</button>
+    </div>
+  </header>
+
+  <div class="main-container">
+    <!-- Top Stats -->
+    <div class="grid-stats">
+      <div class="stat-card">
+        <div class="stat-label">Total Queues</div>
+        <div class="stat-value" id="stat-queues">-</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Available Messages</div>
+        <div class="stat-value" style="color:var(--accent)" id="stat-available">-</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">In-Flight (Processing)</div>
+        <div class="stat-value" style="color:var(--warning)" id="stat-flight">-</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Dead-Letter Messages</div>
+        <div class="stat-value" style="color:var(--danger)" id="stat-dlq">-</div>
+      </div>
+    </div>
+
+    <!-- Navigation Tabs -->
+    <div class="tabs">
+      <button class="tab-btn active" onclick="switchTab('queues-panel')">Queue Explorer</button>
+      <button class="tab-btn" onclick="switchTab('replay-panel')">⚡ Time-Travel Replay</button>
+      <button class="tab-btn" onclick="switchTab('healing-panel')">🩺 Self-Healing DLQ</button>
+      <button class="tab-btn" onclick="switchTab('simulator-panel')">🚀 Live Traffic Simulator</button>
+    </div>
+
+    <!-- Panel 1: Queue Explorer -->
+    <div id="queues-panel" class="panel active">
+      <div class="card">
+        <div class="card-title">
+          <span>Active Queues</span>
+          <button class="btn" onclick="fetchQueues()">↻ Refresh</button>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>Queue Name</th>
+              <th>Type</th>
+              <th>Available</th>
+              <th>In-Flight</th>
+              <th>DLQ Target</th>
+              <th>Visibility</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="queues-table-body">
+            <tr><td colspan="7" style="text-align:center; color:#8b949e;">Loading queues...</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Quick Message Sender -->
+      <div class="card">
+        <div class="card-title">Send Test Message</div>
+        <div class="split-layout">
+          <div>
+            <div class="form-group">
+              <label>Target Queue</label>
+              <select id="send-target-queue"></select>
+            </div>
+            <div class="form-group">
+              <label>Message Group ID (FIFO optional)</label>
+              <input type="text" id="send-group-id" placeholder="e.g. order-dept" />
+            </div>
+            <div class="form-group">
+              <label>Delay Seconds</label>
+              <input type="number" id="send-delay" value="0" />
+            </div>
+          </div>
+          <div>
+            <div class="form-group">
+              <label>Message Body (JSON / Text)</label>
+              <textarea id="send-body" rows="6" placeholder='{"event": "checkout", "order_id": "ORD-101", "amount": 89.50}'></textarea>
+            </div>
+            <button class="btn btn-primary" style="width:100%" onclick="sendMessage()">Send Message</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Panel 2: Time-Travel Replay -->
+    <div id="replay-panel" class="panel">
+      <div class="card">
+        <div class="card-title">
+          <span>Deterministic Time-Travel Replay Engine</span>
+          <span class="pill pill-purple">Lossless ChronoLog</span>
+        </div>
+        <p style="color:#8b949e; font-size:0.85rem; margin-bottom:16px;">
+          Replay historical traffic from any exact point in time. ChronoQueue queries its immutable log to replay matching messages into production or a shadow debug queue without mutating the original queue's sequence.
+        </p>
+        <div class="split-layout">
+          <div>
+            <div class="form-group">
+              <label>Source Queue</label>
+              <select id="replay-source-queue"></select>
+            </div>
+            <div class="form-group">
+              <label>Time Window</label>
+              <select id="replay-preset" onchange="adjustReplayWindow()">
+                <option value="5m">Past 5 Minutes</option>
+                <option value="15m">Past 15 Minutes</option>
+                <option value="1h">Past 1 Hour</option>
+                <option value="all">Entire History</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Target Destination Queue</label>
+              <input type="text" id="replay-target" placeholder="Leave blank to replay into original queue, or type shadow queue (e.g. orders-shadow)" />
+            </div>
+            <div class="form-group">
+              <label>Filter Predicate (Regex or JSON key=val)</label>
+              <input type="text" id="replay-filter" placeholder="e.g. event=checkout or FAILED" />
+            </div>
+            <div style="display:flex; gap:12px; margin-top:20px;">
+              <button class="btn" style="flex:1" onclick="runReplay(true)">Dry-Run Simulation</button>
+              <button class="btn btn-purple" style="flex:1" onclick="runReplay(false)">▶ Execute Time-Travel</button>
+            </div>
+          </div>
+          <div>
+            <label>Replay Inspection & Results</label>
+            <pre id="replay-output" style="height: 290px; max-height: 290px;">No replay executed yet. Click 'Dry-Run Simulation' to inspect matches.</pre>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Panel 3: Self-Healing DLQ -->
+    <div id="healing-panel" class="panel">
+      <div class="card">
+        <div class="card-title">
+          <span>Dead-Letter Queue Root Cause Analyzer & Auto-Patcher</span>
+          <span class="pill pill-danger">AI/Heuristic Diagnostic</span>
+        </div>
+        <p style="color:#8b949e; font-size:0.85rem; margin-bottom:16px;">
+          Automatically inspects quarantined DLQ messages, clusters stack traces, diagnoses root causes (schema mismatch, malformed JSON, downstream timeout), tests fixes in a sandbox, and safely redrives.
+        </p>
+        <div style="display:flex; gap:12px; align-items:flex-end; margin-bottom:20px;">
+          <div style="flex:1">
+            <label>Select Dead Letter Queue</label>
+            <select id="dlq-select"></select>
+          </div>
+          <button class="btn btn-primary" onclick="diagnoseDLQ()">🩺 Diagnose DLQ</button>
+        </div>
+
+        <div id="diagnosis-results" style="display:none;">
+          <div class="card-title" style="font-size:0.95rem;">Diagnostic Reports & Suggested Fixes</div>
+          <div id="diagnosis-cards" style="display:flex; flex-direction:column; gap:12px; margin-bottom:20px;"></div>
+
+          <div class="card-title" style="font-size:0.95rem;">Sandbox Patch Preview (Before vs After)</div>
+          <div id="patch-preview-container" class="diff-box" style="margin-bottom:20px;">
+            Select or customize a patch recipe to view the dry-run diff.
+          </div>
+
+          <div style="display:flex; gap:12px;">
+            <input type="text" id="redrive-target-queue" placeholder="Redrive Destination Queue (e.g., orders-primary)" />
+            <button class="btn btn-purple" onclick="executeRedrive()">🚀 Redrive with Patch</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Panel 4: Live Traffic Simulator -->
+    <div id="simulator-panel" class="panel">
+      <div class="card">
+        <div class="card-title">Live Pipeline Simulation</div>
+        <p style="color:#8b949e; font-size:0.85rem; margin-bottom:16px;">
+          Inject test scenarios to see ChronoQueue's real-time capabilities in action (FIFO deduplication, poison pills landing in DLQ, and schema drift).
+        </p>
+        <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:16px;">
+          <div class="card" style="border-color:#30363d;">
+            <h4 style="color:var(--text-bright); margin-bottom:8px;">Scenario A: High-Throughput Burst</h4>
+            <p style="font-size:0.8rem; color:#8b949e; margin-bottom:12px;">Publishes 20 valid order transactions rapidly to verify throughput.</p>
+            <button class="btn btn-primary" style="width:100%" onclick="runScenario('burst')">Run Burst</button>
+          </div>
+          <div class="card" style="border-color:#30363d;">
+            <h4 style="color:var(--text-bright); margin-bottom:8px;">Scenario B: Schema Drift (Poison Pill)</h4>
+            <p style="font-size:0.8rem; color:#8b949e; margin-bottom:12px;">Publishes messages with missing fields, simulates worker failures, and routes to DLQ.</p>
+            <button class="btn btn-danger" style="width:100%" onclick="runScenario('poison')">Inject Poison Pills</button>
+          </div>
+          <div class="card" style="border-color:#30363d;">
+            <h4 style="color:var(--text-bright); margin-bottom:8px;">Scenario C: FIFO Dedup Test</h4>
+            <p style="font-size:0.8rem; color:#8b949e; margin-bottom:12px;">Attempts duplicate deliveries with identical deduplication IDs.</p>
+            <button class="btn btn-purple" style="width:100%" onclick="runScenario('fifo')">Test FIFO Dedup</button>
+          </div>
+        </div>
+        <div style="margin-top:20px;">
+          <label>Simulation Logs</label>
+          <pre id="sim-log" style="height:180px;">Ready for simulation.</pre>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let currentPatchRecipe = null;
+
+    function switchTab(panelId) {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+      event.target.classList.add('active');
+      document.getElementById(panelId).classList.add('active');
+    }
+
+    async function fetchStats() {
+      try {
+        const res = await fetch('/api/metrics');
+        const data = await res.json();
+        document.getElementById('stat-queues').textContent = data.total_queues;
+        document.getElementById('stat-available').textContent = data.total_available;
+        document.getElementById('stat-flight').textContent = data.total_in_flight;
+        document.getElementById('stat-dlq').textContent = data.total_dead_letter;
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    async function fetchQueues() {
+      try {
+        const res = await fetch('/api/queues');
+        const queues = await res.json();
+        const tbody = document.getElementById('queues-table-body');
+        const sendSelect = document.getElementById('send-target-queue');
+        const replaySelect = document.getElementById('replay-source-queue');
+        const dlqSelect = document.getElementById('dlq-select');
+
+        sendSelect.innerHTML = '';
+        replaySelect.innerHTML = '';
+        dlqSelect.innerHTML = '';
+
+        if (queues.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; color:#8b949e;">No queues created yet.</td></tr>';
+          return;
+        }
+
+        tbody.innerHTML = '';
+        queues.forEach(q => {
+          const isDlq = q.name.includes('dlq') || q.name.includes('dead');
+          const opt = `<option value="${q.name}">${q.name}</option>`;
+          sendSelect.innerHTML += opt;
+          replaySelect.innerHTML += opt;
+          if (isDlq || q.metrics.dead_letter_count > 0) {
+            dlqSelect.innerHTML += opt;
+          }
+
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td style="font-weight:600; color:var(--text-bright);">${q.name}</td>
+            <td>${q.is_fifo ? '<span class="pill pill-purple">FIFO</span>' : '<span class="pill">Standard</span>'}</td>
+            <td><strong style="color:var(--accent)">${q.metrics.approximate_number_of_messages}</strong></td>
+            <td><strong style="color:var(--warning)">${q.metrics.approximate_number_of_messages_not_visible}</strong></td>
+            <td>${q.dead_letter_target ? `<span class="pill pill-danger">${q.dead_letter_target}</span>` : '<span style="color:#6e7681">-</span>'}</td>
+            <td>${q.visibility_timeout}s</td>
+            <td>
+              <button class="btn" style="padding:4px 8px;" onclick="purgeQueue('${q.name}')">Purge</button>
+            </td>
+          `;
+          tbody.appendChild(tr);
+        });
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    async function sendMessage() {
+      const q = document.getElementById('send-target-queue').value;
+      const body = document.getElementById('send-body').value;
+      const groupId = document.getElementById('send-group-id').value;
+      const delay = parseInt(document.getElementById('send-delay').value) || 0;
+
+      if (!body) return alert('Please enter message body');
+
+      const res = await fetch('/api/messages/send', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          queue_name: q,
+          body: body,
+          message_group_id: groupId || null,
+          delay_seconds: delay
+        })
+      });
+
+      if (res.ok) {
+        alert('Message sent successfully!');
+        fetchStats();
+        fetchQueues();
+      } else {
+        alert('Failed to send message: ' + (await res.text()));
+      }
+    }
+
+    async function runReplay(isDryRun) {
+      const q = document.getElementById('replay-source-queue').value;
+      const target = document.getElementById('replay-target').value;
+      const filter = document.getElementById('replay-filter').value;
+      const preset = document.getElementById('replay-preset').value;
+
+      const now = Date.now() / 1000;
+      let start = now - 300;
+      if (preset === '15m') start = now - 900;
+      if (preset === '1h') start = now - 3600;
+      if (preset === 'all') start = 0;
+
+      document.getElementById('replay-output').textContent = 'Executing replay query...';
+
+      const res = await fetch('/api/chrono/replay', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          source_queue: q,
+          target_queue: target || null,
+          start_time: start,
+          end_time: now,
+          filter_expr: filter || null,
+          dry_run: isDryRun
+        })
+      });
+
+      const data = await res.json();
+      document.getElementById('replay-output').textContent = JSON.stringify(data, null, 2);
+      fetchStats();
+      fetchQueues();
+    }
+
+    async function diagnoseDLQ() {
+      const dlq = document.getElementById('dlq-select').value;
+      if (!dlq) return alert('Select a DLQ first.');
+
+      const res = await fetch(`/api/chrono/dlq/diagnose?queue=${encodeURIComponent(dlq)}`);
+      const reports = await res.json();
+
+      const container = document.getElementById('diagnosis-cards');
+      const resultsDiv = document.getElementById('diagnosis-results');
+      container.innerHTML = '';
+      resultsDiv.style.display = 'block';
+
+      if (reports.length === 0) {
+        container.innerHTML = '<div style="color:#8b949e;">No quarantined messages found in this DLQ.</div>';
+        return;
+      }
+
+      reports.forEach((rep, idx) => {
+        const div = document.createElement('div');
+        div.className = 'card';
+        div.style.border = '1px solid #30363d';
+        div.innerHTML = `
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+            <strong style="color:var(--text-bright);">${rep.category}</strong>
+            <span class="pill pill-purple">Confidence: ${Math.round(rep.confidence*100)}%</span>
+          </div>
+          <p style="font-size:0.85rem; color:#8b949e; margin-bottom:8px;">${rep.description} (Affected: ${rep.affected_count} messages)</p>
+          <div style="margin-bottom:8px;">
+            <span style="font-size:0.75rem; color:#8b949e;">Sample Error:</span>
+            <pre style="margin-top:4px;">${JSON.stringify(rep.sample_error, null, 2)}</pre>
+          </div>
+          <div style="margin-bottom:12px;">
+            <span style="font-size:0.75rem; color:#8b949e;">Suggested Patch Recipe:</span>
+            <pre style="margin-top:4px;">${JSON.stringify(rep.suggested_patch, null, 2)}</pre>
+          </div>
+          <button class="btn btn-primary" onclick='previewPatch(${JSON.stringify(rep.suggested_patch)})'>Apply & Preview in Sandbox</button>
+        `;
+        container.appendChild(div);
+      });
+
+      if (reports[0]?.suggested_patch) {
+        previewPatch(reports[0].suggested_patch);
+      }
+    }
+
+    async function previewPatch(patch) {
+      currentPatchRecipe = patch;
+      const dlq = document.getElementById('dlq-select').value;
+      const res = await fetch('/api/chrono/dlq/dryrun-patch', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ queue_name: dlq, patch_recipe: patch })
+      });
+      const previews = await res.json();
+      const box = document.getElementById('patch-preview-container');
+      box.innerHTML = '';
+
+      previews.forEach(p => {
+        const item = document.createElement('div');
+        item.style.marginBottom = '12px';
+        item.innerHTML = `
+          <div style="font-weight:600; margin-bottom:4px; color:var(--text-bright);">Message ID: ${p.message_id}</div>
+          <div><span class="diff-old">BEFORE:</span> ${escapeHtml(p.original_body)}</div>
+          <div style="margin-top:4px;"><span class="diff-new">AFTER:</span> ${escapeHtml(p.patched_body)}</div>
+        `;
+        box.appendChild(item);
+      });
+    }
+
+    async function executeRedrive() {
+      const dlq = document.getElementById('dlq-select').value;
+      const target = document.getElementById('redrive-target-queue').value;
+      if (!target) return alert('Please enter target queue name for redrive.');
+
+      const res = await fetch('/api/chrono/dlq/redrive', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          source_dlq: dlq,
+          target_queue: target,
+          patch_recipe: currentPatchRecipe || {}
+        })
+      });
+
+      const data = await res.json();
+      alert(`Redrive complete! ${data.successfully_redriven} messages repaired and restored to ${target}.`);
+      fetchStats();
+      fetchQueues();
+      diagnoseDLQ();
+    }
+
+    async function runScenario(type) {
+      const log = document.getElementById('sim-log');
+      log.textContent = `Running ${type} scenario...\n`;
+      const res = await fetch(`/api/simulate/${type}`, { method: 'POST' });
+      const data = await res.json();
+      log.textContent += JSON.stringify(data, null, 2);
+      fetchStats();
+      fetchQueues();
+    }
+
+    function escapeHtml(str) {
+      return (str || '').replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+
+    async function purgeQueue(q) {
+      if (!confirm(`Purge all messages in queue '${q}'?`)) return;
+      await fetch(`/api/queues/${encodeURIComponent(q)}/purge`, { method: 'POST' });
+      fetchStats();
+      fetchQueues();
+    }
+
+    async function openCreateQueueModal() {
+      const name = prompt('Enter Queue Name (add .fifo for FIFO queues):', 'orders-queue');
+      if (!name) return;
+      let dlq = prompt('Dead Letter Queue Target (optional, leave blank for none):', name + '-dlq');
+      const res = await fetch('/api/queues', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          name: name,
+          dead_letter_target: dlq || null,
+          max_receive_count: 3
+        })
+      });
+      if (res.ok) {
+        alert('Queue created!');
+        fetchStats();
+        fetchQueues();
+      }
+    }
+
+    // Auto-refresh loops
+    setInterval(fetchStats, 3000);
+    fetchStats();
+    fetchQueues();
+  </script>
+</body>
+</html>

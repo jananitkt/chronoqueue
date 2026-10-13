@@ -1,0 +1,24 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# SQLite databases & WAL logs
+*.db
+*.db-shm
+*.db-wal
+demo_chronoqueue.db*
+chronoqueue.db*
+data/
+
+# Log files
+*.log
+
+# Environments & OS files
+.DS_Store
+.env
+.venv/
+env/
+venv/
+.idea/
+.vscode/

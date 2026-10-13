@@ -1,0 +1,11 @@
+services:
+  chronoqueue:
+    build: .
+    container_name: chronoqueue
+    restart: unless-stopped
+    ports:
+      - "9324:9324"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - PYTHONUNBUFFERED=1

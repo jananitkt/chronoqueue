@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+*$py.class
+*.db
+*.db-shm
+*.db-wal
+.git/
+.gitignore
+tests/
+demo.py
+demo_chronoqueue.db*
+data/
